@@ -3,33 +3,33 @@ pipeline {
 
   triggers { githubPush() }
 
+  // Optioneel: voorkomt dubbele checkout (Declarative checkout + eigen checkout stage)
+  options { skipDefaultCheckout(true) }
+
   environment {
     PROJECT_PATH = 'frontend\\EasyDevOps.Frontend\\EasyDevOps.Frontend.csproj'
     OUTPUT_DIR   = 'out'
     CONFIG       = 'Release'
     APP_LOG      = 'app.log'
-    // Kies een poort die je wilt gebruiken
     APP_URL      = 'http://localhost:5000'
   }
 
   stages {
-    stage('Verify .NET') {
-      steps {
-        bat 'dotnet --version'
-      }
-    }
-
     stage('Checkout') {
       steps {
         checkout scm
       }
     }
 
-    // --- Security check #1: NuGet vulnerability check ---
+    stage('Verify .NET') {
+      steps {
+        bat 'dotnet --version'
+      }
+    }
+
+    // --- Security check #1: NuGet dependency vulnerability check ---
     stage('Security: Dependency vulnerabilities') {
       steps {
-        // 'dotnet list package --vulnerable' geeft exitcode 0, ook bij findings.
-        // We laten de output zien en bewaren het als artifact.
         bat """
           echo === Vulnerable packages check ===
           dotnet list "${PROJECT_PATH}" package --vulnerable --include-transitive > vuln-packages.txt
@@ -38,24 +38,22 @@ pipeline {
       }
     }
 
-    // --- Security check #2: Trivy scan (filesystem scan) ---
+    // --- Security check #2: Trivy scan (portable exe, no choco needed) ---
     stage('Security: Trivy scan (fs)') {
       steps {
-        // Installeer Chocolatey + Trivy indien nodig, daarna scan repo.
         bat """
-          where trivy >nul 2>nul
-          if %ERRORLEVEL% NEQ 0 (
-            echo Trivy not found. Installing via Chocolatey...
-            where choco >nul 2>nul
-            if %ERRORLEVEL% NEQ 0 (
-              echo Chocolatey not found. Installing Chocolatey...
-              powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"
-            )
-            choco install trivy -y
+          echo === Download Trivy (portable exe) ===
+          if not exist tools mkdir tools
+          if not exist tools\\trivy.exe (
+            powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+              "$ProgressPreference='SilentlyContinue';" ^
+              "Invoke-WebRequest -Uri 'https://github.com/aquasecurity/trivy/releases/latest/download/trivy_windows-64bit.zip' -OutFile 'tools\\\\trivy.zip';" ^
+              "Expand-Archive -Force 'tools\\\\trivy.zip' 'tools';" ^
+              "Remove-Item -Force 'tools\\\\trivy.zip'"
           )
 
-          echo === Trivy filesystem scan ===
-          trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --format table --output trivy-report.txt .
+          echo === Trivy filesystem scan (HIGH/CRITICAL) ===
+          tools\\trivy.exe fs --scanners vuln,secret --severity HIGH,CRITICAL --format table --output trivy-report.txt .
           type trivy-report.txt
         """
       }
@@ -83,9 +81,8 @@ pipeline {
 
     stage('Run (background)') {
       steps {
-        // Start de app op de achtergrond en schrijf output naar app.log
-        // ASPNETCORE_URLS zet poort/URL.
-        // Let op: deze stap laat de app draaien na de build (handig als demo).
+        // Start de app op de achtergrond en log output naar app.log
+        // Let op: draait op dezelfde Jenkins machine. Voor externe toegang open poort/firewall.
         bat """
           echo === Starting app in background ===
           if exist "${APP_LOG}" del "${APP_LOG}"
@@ -99,7 +96,6 @@ pipeline {
 
     stage('Smoke test (HTTP)') {
       steps {
-        // Simpele check of de webapp antwoord geeft
         bat """
           powershell -NoProfile -Command "try { (Invoke-WebRequest -UseBasicParsing '${APP_URL}' -TimeoutSec 10).StatusCode } catch { Write-Error $_; exit 1 }"
         """
