@@ -3,7 +3,6 @@ pipeline {
 
   triggers { githubPush() }
 
-  // Optioneel: voorkomt dubbele checkout (Declarative checkout + eigen checkout stage)
   options { skipDefaultCheckout(true) }
 
   environment {
@@ -27,7 +26,6 @@ pipeline {
       }
     }
 
-    // --- Security check #1: NuGet dependency vulnerability check ---
     stage('Security: Dependency vulnerabilities') {
       steps {
         bat """
@@ -38,7 +36,6 @@ pipeline {
       }
     }
 
-    // --- Security check #2: Trivy scan (portable exe, no choco needed) ---
     stage('Security: Trivy scan (fs)') {
       steps {
         bat """
@@ -46,7 +43,6 @@ pipeline {
           if not exist tools mkdir tools
           if not exist tools\\trivy.exe (
             powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-              "$ProgressPreference='SilentlyContinue';" ^
               "Invoke-WebRequest -Uri 'https://github.com/aquasecurity/trivy/releases/latest/download/trivy_windows-64bit.zip' -OutFile 'tools\\\\trivy.zip';" ^
               "Expand-Archive -Force 'tools\\\\trivy.zip' 'tools';" ^
               "Remove-Item -Force 'tools\\\\trivy.zip'"
@@ -81,8 +77,6 @@ pipeline {
 
     stage('Run (background)') {
       steps {
-        // Start de app op de achtergrond en log output naar app.log
-        // Let op: draait op dezelfde Jenkins machine. Voor externe toegang open poort/firewall.
         bat """
           echo === Starting app in background ===
           if exist "${APP_LOG}" del "${APP_LOG}"
