@@ -7,7 +7,7 @@ pipeline {
 
   environment {
     // Pas dit aan als jouw csproj ergens anders staat
-    PROJECT_PATH = 'frontend\\EasyDevOps.Frontend\\EasyDevOps.Frontend\\EasyDevOps.Frontend.csproj'
+    PROJECT_PATH = 'frontend\\EasyDevOps.Frontend\\EasyDevOps.Frontend\\EasyDevOps.Frontend'
     OUTPUT_DIR   = 'out'
     CONFIG       = 'Release'
   }
